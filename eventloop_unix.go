@@ -200,10 +200,18 @@ func (el *eventloop) loopWrite(c *conn) error {
 		n   int
 		err error
 	)
-	if len(tail) > 0 {
-		n, err = io.Writev(c.fd, [][]byte{head, tail})
+	if c.outboundBuffer.Length() >= 10*1024 {
+		if len(tail) > 0 {
+			n, err = io.SendMsgs(c.fd, [][]byte{head, tail})
+		} else {
+			n, err = unix.SendmsgN(c.fd, head, nil, nil, io.MSG_ZEROCOPY)
+		}
 	} else {
-		n, err = unix.Write(c.fd, head)
+		if len(tail) > 0 {
+			n, err = io.Writev(c.fd, [][]byte{head, tail})
+		} else {
+			n, err = unix.Write(c.fd, head)
+		}
 	}
 	c.outboundBuffer.Discard(n)
 	switch err {

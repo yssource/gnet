@@ -23,16 +23,18 @@
 package io
 
 import (
+	"unsafe"
+
 	"golang.org/x/sys/unix"
 
 	"github.com/panjf2000/gnet/errors"
 )
 
 // Writev simply calls write() multiple times cuz writev() on BSD-like OS's is not yet implemented in Go.
-func Writev(fd int, iov [][]byte) (int, error) {
+func Writev(fd int, iovs [][]byte) (int, error) {
 	var sum int
-	for i := range iov {
-		n, err := unix.Write(fd, iov[i])
+	for i := range iovs {
+		n, err := unix.Write(fd, iovs[i])
 		if err != nil {
 			if sum == 0 {
 				sum = n
@@ -40,7 +42,7 @@ func Writev(fd int, iov [][]byte) (int, error) {
 			return sum, err
 		}
 		sum += n
-		if n < len(iov[i]) {
+		if n < len(iovs[i]) {
 			return sum, errors.ErrShortWritev
 		}
 	}
@@ -48,10 +50,10 @@ func Writev(fd int, iov [][]byte) (int, error) {
 }
 
 // Readv simply calls read() multiple times cuz readv() on BSD-like OS's is not yet implemented in Go.
-func Readv(fd int, iov [][]byte) (int, error) {
+func Readv(fd int, iovs [][]byte) (int, error) {
 	var sum int
-	for i := range iov {
-		n, err := unix.Read(fd, iov[i])
+	for i := range iovs {
+		n, err := unix.Read(fd, iovs[i])
 		if err != nil {
 			if sum == 0 {
 				sum = n
@@ -59,9 +61,28 @@ func Readv(fd int, iov [][]byte) (int, error) {
 			return sum, err
 		}
 		sum += n
-		if n < len(iov[i]) {
+		if n < len(iovs[i]) {
 			return sum, errors.ErrShortReadv
 		}
 	}
 	return sum, nil
+}
+
+// SendMsgs ...
+func SendMsgs(fd int, iovs [][]byte) (int, error) {
+	iovecs := make([]unix.Iovec, len(iovs))
+	for i, iov := range iovs {
+		iovecs[i].SetLen(len(iov))
+		if len(iov) > 0 {
+			iovecs[i].Base = &iov[0]
+		} else {
+			iovecs[i].Base = (*byte)(unsafe.Pointer(&_zero))
+		}
+	}
+	msg := unix.Msghdr{Iov: &iovecs[0], Iovlen: int32(len(iovecs))}
+	if r, _, errno := unix.Syscall(unix.SYS_SENDMSG, uintptr(fd), uintptr(unsafe.Pointer(&msg)), 0); errno != 0 {
+		return 0, errno
+	} else {
+		return int(r), nil
+	}
 }
